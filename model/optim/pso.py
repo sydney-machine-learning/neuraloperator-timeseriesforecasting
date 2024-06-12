@@ -1,0 +1,135 @@
+import copy
+import random
+import sys
+import time
+from typing import Callable, List
+
+import numpy as np
+import torch
+
+np.set_printoptions(suppress=True)
+
+################################################################
+
+class Particle(object):
+    def __init__(self, num_params:int, fitness_function:Callable,
+                 max_limits: torch.Tensor, min_limits:torch.Tensor,
+                 max_limits_vel, min_limits_vel):
+
+        self.fitness_function = fitness_function
+        r_pos = torch.tensor(random.sample(range(1, num_params+1), num_params) )/ (num_params+1) #to force using random without np and convert to np (to avoid multiprocessing random seed issue)
+
+        np_pos = torch.rand(num_params)/2 + r_pos/2
+        np_vel = torch.rand(num_params)/2 + r_pos/2
+
+        self.position = ((max_limits - min_limits) * np_pos  + min_limits) # using random.rand() rather than np.random.rand() to avoid multiprocesssing random issues
+        self.velocity = ((max_limits_vel - min_limits_vel) * np_vel  + min_limits_vel)
+        #print('pos', self.position, 'vel', self.velocity)
+
+        self.error =  self.fitness_function(self.position)# curr error
+        self.best_part_pos =  self.position.detach().clone()
+        self.best_part_err = self.error # best error 
+
+
+class PSO(object):
+    
+    def __init__(self, pop_size, num_params, fitness_function,
+                 max_limits, min_limits, max_limits_vel, min_limits_vel):
+        
+        self.fitness_function = fitness_function
+        self.num_params = num_params
+        self.pop_size = pop_size
+        self.min_limits = min_limits
+        self.max_limits = max_limits
+        self.min_limits_vel = min_limits_vel
+        self.max_limits_vel = max_limits_vel
+        self.swarm, self.best_swarm_pos, self.best_swarm_err = self.create_swarm()
+
+
+    def create_swarm(self):
+        swarm = [Particle(num_params=self.num_params, max_limits=self.max_limits, min_limits=self.min_limits, fitness_function=self.fitness_function, max_limits_vel=self.max_limits_vel, min_limits_vel=self.min_limits_vel) for i in range(self.pop_size)] 
+        best_swarm_pos = [0.0 for i in range(self.num_params)] # not necess.
+        best_swarm_err = torch.inf #sys.float_info.max # swarm best
+        for i in range(self.pop_size): # check each particle
+            if swarm[i].error < best_swarm_err:
+                best_swarm_err = swarm[i].error
+                best_swarm_pos = copy.copy(swarm[i].position) 
+        return swarm, best_swarm_pos, best_swarm_err
+
+    def evolve(self, swarm, best_swarm_pos, best_swarm_err): # this is executed without even calling - due to multi-processing
+
+        w = 0.729    # inertia
+        c1 = 1.4 # cognitive (particle)
+        c2 = 1.4 # social (swarm)
+
+        torch.manual_seed(int(time.time()))
+        
+        for i in range(self.pop_size): # process each particle 
+
+            r_pos = torch.tensor(random.sample(range(1, self.num_params+1), self.num_params) )/ (self.num_params+1) #to force using random without np and convert to np (to avoid multiprocessing random seed issue)
+
+            r1 = torch.rand(self.num_params)/2 + r_pos/2
+            r2 = torch.rand(self.num_params)
+            
+            swarm[i].velocity =( (w * swarm[i].velocity) + (c1 * r1 * (swarm[i].best_part_pos - swarm[i].position)) +  (c2 * r2 * (best_swarm_pos - swarm[i].position)) )  
+
+            for k in range(self.num_params): 
+     
+                if swarm[i].velocity[k] < self.min_limits_vel[k]:
+                    swarm[i].velocity[k] = self.min_limits_vel[k]
+                elif swarm[i].velocity[k] > self.max_limits_vel[k]:
+                    swarm[i].velocity[k] = self.max_limits_vel[k]
+
+            swarm[i].position += swarm[i].velocity
+
+            for k in range(self.num_params): 
+                if swarm[i].position[k] < self.min_limits[k]:
+                    swarm[i].position[k] = self.min_limits[k]
+                elif swarm[i].position[k] > self.max_limits[k]:
+                    swarm[i].position[k] = self.max_limits[k]
+
+            swarm[i].error = self.fitness_function(swarm[i].position)
+                
+            if swarm[i].error < swarm[i].best_part_err:
+                # print('hello')
+                swarm[i].best_part_err = swarm[i].error
+                swarm[i].best_part_pos = copy.copy(swarm[i].position)
+
+            if swarm[i].error < best_swarm_err:
+                # print('hello again')
+                best_swarm_err = swarm[i].error
+                best_swarm_pos = copy.copy(swarm[i].position)
+            else:
+                pass
+                # print(swarm[i].position, best_swarm_pos)
+        
+        return swarm, best_swarm_pos, best_swarm_err
+
+
+if __name__ == '__main__':
+    def f(x):
+        fit =  torch.zeros(1)
+        for j in range(x.shape[0]- 1):
+            # fit += ((j+1)*(x[j]*x[j]))
+            fit += (100.0*(x[j]*x[j] - x[j+1])*(x[j]*x[j] - x[j+1]) + (x[j]-1.0)*(x[j]-1.0))
+        return  fit
+    
+    dims = 5
+    pso = PSO(
+        pop_size=50,
+        fitness_function=f,
+        num_params=dims,
+        max_limits=5*torch.ones(dims),
+        min_limits=-5*torch.ones(dims),
+        max_limits_vel=0.25*torch.ones(dims),
+        min_limits_vel=-0.25*torch.ones(dims)
+    )
+
+    eps = 1e-5
+
+    swarm, best_pos, best_fit = pso.swarm, pso.best_swarm_pos, pso.best_swarm_err
+
+    while best_fit < -eps or best_fit > eps:
+        swarm, best_pos, best_fit = pso.evolve(swarm, best_pos, best_fit)
+        print(best_pos, best_fit)
+
