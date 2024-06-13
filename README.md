@@ -1,3 +1,16 @@
+# Neural Operators Time Series Forecasting
+
+This project involves implementing and benchmarking the Fourier Neural Operator machine 
+learning model for time series forecasting.
+
+## Data
+
+The data used in these experiments comes from [FILL THIS IN HARSH]
+
+## Experiments
+
+* Harsh write up a summary of your experimental approach
+
 This code compares RMSE values for fourier neural operator, CNN and LSTM on different timeseries datasets like sunspot, lazer, lorenz etc. 
 
 RMSE values are compared by running 30 experiments of 1000 epochs on all 3 models respectively to obtain correct results.
@@ -31,3 +44,10 @@ Results ->
 For most of the datasets, RMSE (CNN) < RMSE (LSTM) << RMSE (Fourier). 
 
 Results can be seen in the powerpoint rmse_fourier. 
+
+
+## Results
+
+Results are being written up in Latex in the 
+[Overleaf Project](https://www.overleaf.com/project/66242cc81be85c1b7adef538)
+
